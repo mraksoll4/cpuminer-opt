@@ -18,12 +18,12 @@
 #include <string.h>
 #include "miner.h"
 #include "algo/yespower/yespower.h"         // yespower_tls(...) SSE2/ref
-#include "argon2ddpc/argon2.h"    // argon2id_hash_raw
+#include "algo/argon2d/argon2d/argon2.h"    // argon2id_hash_raw
 #include "sha512.h"           // ваш SHA-512 (C-реализация)
 #include "algo-gate-api.h"    // algo_gate_t, submit_solution, ...
 #include "simd-utils.h"
 
-
+extern __thread sha256_context sha256_prehash_ctx;
 /* 
  * Глобальная (или thread-local) переменная:
  *   extern __thread sha256_context sha256_prehash_ctx; 
@@ -63,7 +63,8 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
         2,        // параллелизм=2
         (const void*)input, (size_t)input_len,
         (const void*)salt_sha512, (size_t)64,
-        (void*)hash, (size_t)32
+        (void*)hash, (size_t)32,
+        0x13
     );
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
@@ -77,7 +78,8 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
         2,
         (const void*)input, (size_t)input_len,
         (const void*)hash, 32,
-        (void*)hash2, 32
+        (void*)hash2, 32,
+        0x13
     );
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
@@ -101,14 +103,13 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
     uint32_t _ALIGN(64) vhash[8];
     unsigned char _ALIGN(64) argon2hash[32];
     uint32_t _ALIGN(64) endiandata[20];
-
-    uint32_t *pdata   = work->data;
+    uint32_t *pdata = work->data;
     uint32_t *ptarget = work->target;
-
     const uint32_t first_nonce = pdata[19];
-    const uint32_t last_nonce  = max_nonce;
+    const uint32_t last_nonce = max_nonce;
     uint32_t n = first_nonce;
     const int thr_id = mythr->id;
+    uint64_t argon_count = 0;  // Счётчик только для Argon2 вычислений
 
     /* 1) Заполняем 19 слов => endiandata[0..18], +nonce => endiandata[19] */
     for (int k = 0; k < 19; k++) {
@@ -119,34 +120,26 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
     /* 2) Часть scanhash_yespower: "partial sha256" */
     sha256_ctx_init(&sha256_prehash_ctx);
     sha256_update(&sha256_prehash_ctx, endiandata, 64);
-    // не делаем sha256_final, т.к. yespower_tls внутри "дочитает" 16 байт
 
-    /* 3) Цикл перебора nonce */
     do {
-        /* Вызываем yespower (через gate->hash), 
-           которая внутри использует sha256_prehash_ctx частично */
         if (algo_gate.hash((char*)endiandata, (char*)vhash, thr_id)) {
-            /* Проверяем yespower < target ? */
-            if unlikely( valid_hash( vhash, ptarget ) && !opt_benchmark ) {
-                /* Если yespower ok => Argon2idDPC на те же 80 байт */
+            if unlikely(valid_hash(vhash, ptarget) && !opt_benchmark) {
+                // Увеличиваем счётчик только когда делаем Argon2 вычисление
+                argon_count++;
+                
                 argon2idDPC_hash((const char*)endiandata, (char*)argon2hash, 80);
-
-                /* Снова проверяем < target */
+                
                 if (valid_hash((uint32_t*)argon2hash, ptarget)) {
-                    /* Обе проверки прошли */
                     be32enc(pdata + 19, n);
-
-                    /* Выведем в лог оба хеша (hex) */
+                    
                     char yeshex[65], arghex[65];
-                    bin2hex(yeshex,  (unsigned char*)vhash,    32);
-                    bin2hex(arghex,  (unsigned char*)argon2hash, 32);
-
+                    bin2hex(yeshex, (unsigned char*)vhash, 32);
+                    bin2hex(arghex, (unsigned char*)argon2hash, 32);
                     applog(LOG_INFO, 
                         "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
                         "  Yespower-hash:    %s\n"
                         "  Argon2idDPC-hash: %s",
                         thr_id, n, yeshex, arghex);
-
                     submit_solution(work, argon2hash, mythr);
                 }
             }
@@ -154,7 +147,9 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
         endiandata[19] = ++n;
     } while (n < last_nonce && !work_restart[thr_id].restart);
 
-    *hashes_done = n - first_nonce;
+    // Возвращаем только количество Argon2 вычислений
+    *hashes_done = argon_count;
+
     pdata[19] = n;
     return 0;
 }
