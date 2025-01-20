@@ -685,7 +685,7 @@ static const char* const algo_names[] = {
         "c11",
         "deep",
         "dmd-gr",
-        "dualpowdpc"
+        "dualpowdpc",
         "groestl",
         "hex",
         "hmq1725",
