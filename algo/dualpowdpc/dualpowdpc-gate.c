@@ -39,55 +39,52 @@
  *   - 3) Argon2id( t=2, m=32768, p=2 ) => 32 байта
  *   - Итог (32 байта) кладёт в output.
  * ------------------------------------------------------------------ */
+// Применяем выравнивание для всех буферов, которые участвуют в вычислениях
 static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
 {
-    unsigned char salt_sha512[64];
-    {
-        /* Двойной SHA-512 */
-        sha512_ctx ctx;
-        sha512_init(&ctx);
-        sha512_update(&ctx, (const unsigned char*)input, input_len);
-        sha512_finalize(&ctx, salt_sha512);
+    unsigned char _ALIGN(64) salt_sha512[64];  // Выровняем буфер для SHA-512
+    unsigned char _ALIGN(64) hash[32];         // Выровняем буфер для хешей
+    unsigned char _ALIGN(64) hash2[32];        // Выровняем второй буфер хеша
 
-        sha512_reset(&ctx);
-        sha512_update(&ctx, salt_sha512, 64);
-        sha512_finalize(&ctx, salt_sha512);
+    // 1. Двойной SHA-512
+    sha512_ctx ctx;
+    sha512_init(&ctx);
+    sha512_update(&ctx, (const unsigned char*)input, input_len);
+    sha512_finalize(&ctx, salt_sha512);
+
+    sha512_reset(&ctx);
+    sha512_update(&ctx, salt_sha512, 64);
+    sha512_finalize(&ctx, salt_sha512);
+
+    // 2. Первый Argon2id (t=2, m=4096, p=2)
+    int rc = argon2id_hash_raw(
+        2,        // t_cost=2
+        4096,     // m_cost=4096 KiB => ~4MB
+        2,        // параллелизм=2
+        (const void*)input, (size_t)input_len,
+        (const void*)salt_sha512, (size_t)64,
+        (void*)hash, (size_t)32
+    );
+    if (rc != ARGON2_OK) {
+        applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
+        return; // Возврат в случае ошибки
     }
 
-    unsigned char hash[32];
-    unsigned char hash2[32];
-
-    /* Первый Argon2id (t=2, m=4096, p=2) */
-    {
-        int rc = argon2id_hash_raw(
-            2,        // t_cost=2
-            4096,     // m_cost=4096 KiB => ~4MB
-            2,        // параллелизм=2
-            (const void*)input, (size_t)input_len,
-            (const void*)salt_sha512, (size_t)64,
-            (void*)hash, (size_t)32
-        );
-        if (rc != ARGON2_OK) {
-            applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
-        }
+    // 3. Второй Argon2id (t=2, m=32768, p=2) => 32MB
+    rc = argon2id_hash_raw(
+        2,
+        32768,
+        2,
+        (const void*)input, (size_t)input_len,
+        (const void*)hash, 32,
+        (void*)hash2, 32
+    );
+    if (rc != ARGON2_OK) {
+        applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
+        return; // Возврат в случае ошибки
     }
 
-    /* Второй Argon2id (t=2, m=32768, p=2) => 32MB */
-    {
-        int rc = argon2id_hash_raw(
-            2,
-            32768,
-            2,
-            (const void*)input, (size_t)input_len,
-            (const void*)hash, 32,
-            (void*)hash2, 32
-        );
-        if (rc != ARGON2_OK) {
-            applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
-        }
-    }
-
-    /* Результат → output[32] */
+    // 4. Копирование в финальный результат
     memcpy(output, hash2, 32);
 }
 
@@ -102,7 +99,7 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
                         uint64_t *hashes_done, struct thr_info *mythr)
 {
     uint32_t _ALIGN(64) vhash[8];
-    unsigned char argon2hash[32];
+    unsigned char _ALIGN(64) argon2hash[32];
     uint32_t _ALIGN(64) endiandata[20];
 
     uint32_t *pdata   = work->data;
