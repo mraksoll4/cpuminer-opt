@@ -79,6 +79,8 @@ cpuminer_SOURCES = \
   algo/cubehash/cubehash_sse2.c\
   algo/cubehash/cube-hash-2way.c \
   algo/cubehash/sph_cubehash.c \
+  algo/dualpowdpc/dualpowdpc-gate.c \
+  algo/dualpowdpc/sha512.c \
   algo/echo/sph_echo.c \
   algo/echo/echo-hash-4way.c \
   algo/echo/aes_ni/hash.c\
