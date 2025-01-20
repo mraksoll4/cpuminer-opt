@@ -17,34 +17,26 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "yespower.h"         // yespower_tls(...) SSE2/ref
-#include "argon2.h"           // argon2id_hash_raw
+#include "algo/yespower/yespower.h"         // yespower_tls(...) SSE2/ref
+#include "algo/argon2d/argon2d/argon2.h"    // argon2id_hash_raw
 #include "sha512.h"           // ваш SHA-512 (C-реализация)
-#include "sha256.h"           // sha256_ctx_init, sha256_update, etc
 #include "algo-gate-api.h"    // algo_gate_t, submit_solution, ...
+#include "simd-utils.h"
 
 
 // yespower конфигурация
 yespower_params_t yespower_params;
 
 // Thread-local контекст SHA-256, как в scanhash_yespower:
-__thread sha256_context sha256_prehash_ctx;
+extern __thread sha256_context sha256_prehash_ctx;
 
 /* SSE2 / REF вариант yespower_hash, 
    зависящий от __SSE2__ или __aarch64__ */
+// "extern" для использования уже существующей в yespower-gate.c
 #if defined(__SSE2__) || defined(__aarch64__)
-int yespower_hash(const char *input, char *output, int thrid)
-{
-    // 80 байт -> yespower(N=..., r=..., pers=...) -> 32 байта
-    return yespower_tls(input, 80, &yespower_params,
-                        (yespower_binary_t*)output, thrid);
-}
+extern int yespower_hash(const char *input, char *output, int thrid);
 #else
-int yespower_hash_ref(const char *input, char *output, int thrid)
-{
-    return yespower_tls_ref(input, 80, &yespower_params,
-                            (yespower_binary_t*)output, thrid);
-}
+extern int yespower_hash_ref(const char *input, char *output, int thrid);
 #endif
 
 /* ------------------------------------------------------------------
@@ -81,7 +73,8 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
             2,       // параллелизм=2
             input, input_len,       // пароль
             salt_sha512, 64,        // соль
-            hash, 32
+            hash, 32,
+            ARGON2_VERSION_13
         );
         if (rc != ARGON2_OK) {
             applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
@@ -97,7 +90,8 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
             2,
             input, input_len,
             hash, 32,
-            hash2, 32
+            hash2, 32,
+            ARGON2_VERSION_13
         );
         if (rc != ARGON2_OK) {
             applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);

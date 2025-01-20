@@ -589,6 +589,7 @@ enum algos {
         ALGO_C11,         
         ALGO_DEEP,
         ALGO_DMD_GR,
+        ALGO_DUALPOWDPC,
         ALGO_GROESTL,     
         ALGO_HEX,
         ALGO_HMQ1725,
@@ -684,6 +685,7 @@ static const char* const algo_names[] = {
         "c11",
         "deep",
         "dmd-gr",
+        "dualpowdpc"
         "groestl",
         "hex",
         "hmq1725",
@@ -844,6 +846,7 @@ Options:\n\
                           c11           Chaincoin\n\
                           deep          Deepcoin (DCN)\n\
                           dmd-gr        Diamond\n\
+                          dualpowdpc    Dpowcoin\n\
                           groestl       Groestl coin\n\
                           hex           x16r-hex\n\
                           hmq1725       Espers\n\
@@ -1048,4 +1051,5 @@ static struct option const options[] = {
 
 
 #endif /* __MINER_H__ */
+
 
