@@ -23,7 +23,30 @@
 #include "algo-gate-api.h"    // algo_gate_t, submit_solution, ...
 #include "simd-utils.h"
 
+yespower_params_t yespower_params;
+
 extern __thread sha256_context sha256_prehash_ctx;
+
+
+
+#if defined(__SSE2__) || defined(__aarch64__)
+
+int yespower_hash_dpc( const char *input, char *output, int thrid )
+{
+   return yespower_tls( input, 80, &yespower_params,
+           (yespower_binary_t*)output, thrid );
+}
+
+#else
+
+int yespower_hash_ref_dpc( const char *input, char *output, int thrid )
+{
+   return yespower_tls_ref( input, 80, &yespower_params,
+           (yespower_binary_t*)output, thrid );
+}
+
+#endif
+
 /* 
  * Глобальная (или thread-local) переменная:
  *   extern __thread sha256_context sha256_prehash_ctx; 
@@ -40,7 +63,7 @@ extern __thread sha256_context sha256_prehash_ctx;
  *   - Итог (32 байта) кладёт в output.
  * ------------------------------------------------------------------ */
 // Применяем выравнивание для всех буферов, которые участвуют в вычислениях
-static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
+void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
 {
     unsigned char _ALIGN(64) salt_sha512[64];  // Исправлена синтаксическая ошибка
     unsigned char _ALIGN(64) hash[32];         // Исправлено выравнивание
@@ -75,7 +98,7 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
     context1.free_cbk = NULL;
     context1.version = 0x13;  // Используем конкретное значение версии
 
-    int rc = argon2id_ctx(&context1);  // Используем специализированную функцию
+    int rc = argon2id_ctx_dpc(&context1);  // Используем специализированную функцию
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
         return;
@@ -102,7 +125,7 @@ static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len
     context2.free_cbk = NULL;
     context2.version = 0x13;
 
-    rc = argon2id_ctx(&context2);  // Используем специализированную функцию
+    rc = argon2id_ctx_dpc(&context2);  // Используем специализированную функцию
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
         return;
@@ -151,15 +174,15 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
                 
                 if (valid_hash((uint32_t*)argon2hash, ptarget)) {
                     be32enc(pdata + 19, n);
-                    
-                    char yeshex[65], arghex[65];
-                    bin2hex(yeshex, (unsigned char*)vhash, 32);
-                    bin2hex(arghex, (unsigned char*)argon2hash, 32);
-                    applog(LOG_INFO, 
-                        "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
-                        "  Yespower-hash:    %s\n"
-                        "  Argon2idDPC-hash: %s",
-                        thr_id, n, yeshex, arghex);
+
+                    //char yeshex[65], arghex[65];
+                    //bin2hex(yeshex, (unsigned char*)vhash, 32);
+                    //bin2hex(arghex, (unsigned char*)argon2hash, 32);
+                    //applog(LOG_INFO, 
+                    //    "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
+                    //    "  Yespower-hash:    %s\n"
+                    //    "  Argon2idDPC-hash: %s",
+                    //    thr_id, n, yeshex, arghex);
                     submit_solution(work, argon2hash, mythr);
                 }
             }
@@ -193,9 +216,9 @@ bool register_dualpowdpc_algo(algo_gate_t *gate)
     gate->scanhash      = (void*)&scanhash_dualpowdpc;
 
 #if defined(__SSE2__) || defined(__aarch64__)
-    gate->hash          = (void*)&yespower_hash;     // SSE2 variant
+    gate->hash          = (void*)&yespower_hash_dpc;     // SSE2 variant
 #else
-    gate->hash          = (void*)&yespower_hash_ref; // ref
+    gate->hash          = (void*)&yespower_hash_ref_dpc; // ref
 #endif
 
     opt_target_factor   = 65536.0;

@@ -142,11 +142,16 @@ extern int yespower_tls_ref(const uint8_t *src, size_t srclen,
 
 int yespower_hash( const char *input, char *output, int thrid );
 
+int yespower_hash_dpc( const char *input, char *output, int thrid );
+
 int yespower_b2b_hash( const char *input, char *output, int thrid );
 
 int yespower_hash_ref( const char *input, char *output, int thrid );
 
+int yespower_hash_ref_dpc( const char *input, char *output, int thrid );
+
 int yespower_b2b_hash_ref( const char *input, char *output, int thrid );
+
 
 
 #if defined(__AVX2__)
