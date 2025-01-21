@@ -1,11 +1,11 @@
 #include "sha512.h"
-#include <string.h>  // для memcpy, memset
-#include <stdio.h>   // (необязательно, только если понадобится fprintf)
+#include <string.h>  // for memcpy, memset
+#include <stdio.h>   // (optional, only if fprintf is needed)
 
 /* 
- * Макросы SHA-512 (циклич. сдвиги, Ch, Maj, большие и малые сигмы).
- * Без суффиксов ULL; 64-битные литералы в hex виде интерпретируются 
- * компилятором как 64-бит unsigned long long автоматически.
+ * SHA-512 macros (cyclic shifts, Ch, Maj, large and small sigmas).
+ * No ULL suffixes; 64-bit literals in hexadecimal format are automatically 
+ * interpreted by the compiler as 64-bit unsigned long long.
  */
 #define ROTR64(x,n) ( ((x) >> (n)) | ((x) << (64-(n))) )
 
@@ -34,7 +34,7 @@ static inline uint64_t sigma1(uint64_t x)
     return ROTR64(x,19) ^ ROTR64(x,61) ^ (x >> 6);
 }
 
-/* Таблица констант K0..K79 (FIPS 180‑4). */
+/* Table of constants K0..K79 (FIPS 180-4). */
 static const uint64_t K[80] = {
   0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
   0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
@@ -58,7 +58,7 @@ static const uint64_t K[80] = {
   0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817
 };
 
-/* Начальные значения (IV) SHA-512 (FIPS 180‑4). */
+/* Initial values (IV) for SHA-512 (FIPS 180-4). */
 static const uint64_t SHA512_IV[8] = {
   0x6a09e667f3bcc908, 0xbb67ae8584caa73b,
   0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
@@ -66,7 +66,7 @@ static const uint64_t SHA512_IV[8] = {
   0x1f83d9abfb41bd6b, 0x5be0cd19137e2179
 };
 
-/* Чтение 64-бит из массива (big-endian). */
+/* Read a 64-bit value from an array (big-endian). */
 static inline uint64_t read_be64(const unsigned char *p)
 {
     return ((uint64_t)p[0] << 56) |
@@ -79,7 +79,7 @@ static inline uint64_t read_be64(const unsigned char *p)
            ((uint64_t)p[7]      );
 }
 
-/* Запись 64-бит в массив (big-endian). */
+/* Write a 64-bit value to an array (big-endian). */
 static inline void write_be64(unsigned char *p, uint64_t x)
 {
     p[0] = (unsigned char)(x >> 56);
@@ -92,23 +92,23 @@ static inline void write_be64(unsigned char *p, uint64_t x)
     p[7] = (unsigned char)(x      );
 }
 
-/* Вспомогательная функция: обрабатывает один 128-байтовый блок из buf. */
+/* Helper function: processes a single 128-byte block from buf. */
 static void sha512_transform(uint64_t state[8], const unsigned char block[128])
 {
     uint64_t W[80];
     uint64_t a, b, c, d, e, f, g, h;
     int t;
 
-    /* Распаковываем первые 16 слов W. */
+    /* Unpack the first 16 words W. */
     for (t = 0; t < 16; t++) {
         W[t] = read_be64(block + t*8);
     }
-    /* Вычисляем W[16..79]. */
+    /* Compute W[16..79]. */
     for (t = 16; t < 80; t++) {
         W[t] = sigma1(W[t-2]) + W[t-7] + sigma0(W[t-15]) + W[t-16];
     }
 
-    /* Инициализируем рабочие переменные */
+    /* Initialize working variables */
     a = state[0];
     b = state[1];
     c = state[2];
@@ -118,7 +118,7 @@ static void sha512_transform(uint64_t state[8], const unsigned char block[128])
     g = state[6];
     h = state[7];
 
-    /* 80 раундов */
+    /* 80 rounds */
     for (t = 0; t < 80; t++) {
         uint64_t T1 = h + Sigma1(e) + Ch(e,f,g) + K[t] + W[t];
         uint64_t T2 = Sigma0(a) + Maj(a,b,c);
@@ -132,7 +132,7 @@ static void sha512_transform(uint64_t state[8], const unsigned char block[128])
         a = T1 + T2;
     }
 
-    /* Прибавляем к состоянию */
+    /* Add to the state */
     state[0] += a;
     state[1] += b;
     state[2] += c;
@@ -143,23 +143,23 @@ static void sha512_transform(uint64_t state[8], const unsigned char block[128])
     state[7] += h;
 }
 
-/* Инициализация контекста */
+/* Context initialization */
 void sha512_init(sha512_ctx* ctx)
 {
-    /* Копируем IV в ctx->s */
+    /* Copy IV into ctx->s */
     memcpy(ctx->s, SHA512_IV, sizeof(ctx->s));
     ctx->bytes = 0;
     memset(ctx->buf, 0, 128);
 }
 
-/* Добавление данных в контекст (инкрементально). */
+/* Adding data to the context (incrementally). */
 void sha512_update(sha512_ctx* ctx, const unsigned char* data, size_t len)
 {
-    size_t have = (size_t)(ctx->bytes % 128); // сколько байт уже в буфере
+    size_t have = (size_t)(ctx->bytes % 128); // bytes already in the buffer
     ctx->bytes += len;
 
-    /* Если буфер частично заполнен и вместе с новыми данными >=128, 
-       сначала дозаполним buf и обработаем его */
+    /* If the buffer is partially filled and with new data >=128, 
+       first fill buf and process it */
     size_t need = 128 - have;
     if (have && len >= need) {
         memcpy(ctx->buf + have, data, need);
@@ -168,34 +168,34 @@ void sha512_update(sha512_ctx* ctx, const unsigned char* data, size_t len)
         len  -= need;
         have = 0;
     }
-    /* Обрабатываем полные 128-байтовые блоки напрямую из data */
+    /* Process complete 128-byte blocks directly from data */
     while (len >= 128) {
         sha512_transform(ctx->s, data);
         data += 128;
         len  -= 128;
     }
-    /* Остаток <128 копируем в буфер */
+    /* Copy the remaining <128 bytes into the buffer */
     if (len > 0) {
         memcpy(ctx->buf + have, data, len);
     }
 }
 
-/* Завершение вычисления: добавляем padding, длину, извлекаем финальный хеш. */
+/* Finalize computation: add padding, length, and extract the final hash. */
 void sha512_finalize(sha512_ctx* ctx, unsigned char hash[SHA512_OUTPUT_SIZE])
 {
     /*
-     * По спецификации SHA-512:
-     *  - Добавим 0x80, затем 0..(до 111) нулей, чтобы (длина % 128) стала 112
-     *  - затем 16 байт (128 бит) с описанием длины (в битах, big-endian)
+     * Per the SHA-512 specification:
+     *  - Add 0x80, then 0..(up to 111) zeros to make (length % 128) equal to 112
+     *  - Then 16 bytes (128 bits) describing the length (in bits, big-endian)
      */
-    static const unsigned char pad[128] = { 0x80 }; // первый байт 0x80, остальные 0
+    static const unsigned char pad[128] = { 0x80 }; // first byte 0x80, rest 0
     unsigned char sizedesc[16];
 
-    /* Кол-во бит за все время */
+    /* Total number of bits processed */
     uint64_t bits_lo = (ctx->bytes << 3);
-    uint64_t bits_hi = 0; // для 64-бит счётчика байт, верхние 64=0
+    uint64_t bits_hi = 0; // for a 64-bit byte counter, upper 64=0
 
-    /* Формируем 16 байт длины: сначала 8 байт bits_hi=0, потом bits_lo big-endian */
+    /* Form 16 bytes of length: first 8 bytes bits_hi=0, then bits_lo big-endian */
     memset(sizedesc, 0, 8);
     sizedesc[8]  = (unsigned char)(bits_lo >> 56);
     sizedesc[9]  = (unsigned char)(bits_lo >> 48);
@@ -206,29 +206,29 @@ void sha512_finalize(sha512_ctx* ctx, unsigned char hash[SHA512_OUTPUT_SIZE])
     sizedesc[14] = (unsigned char)(bits_lo >>  8);
     sizedesc[15] = (unsigned char)(bits_lo      );
 
-    /* Сколько байт нужно добавить (pad) до блока 112 (mod 128). 
-       Формула, аналогичная BitcoinCore:
+    /* Calculate the number of padding bytes to add to reach a 112-byte block (mod 128). 
+       Formula is similar to BitcoinCore:
          1 + ((239 - (ctx->bytes % 128)) % 128)
-       Тут 1 — это байт 0x80, 16 — под длину, итого 17..(17+111)
+       Here, 1 is the 0x80 byte, and 16 is for the length, totaling 17..(17+111)
     */
     size_t pad_len = 1 + ((239 - (ctx->bytes % 128)) % 128);
 
-    sha512_update(ctx, pad, pad_len);         // добавляем 0x80 + (pad_len-1) нулей
-    sha512_update(ctx, sizedesc, 16);         // добавляем 16 байт длины
+    sha512_update(ctx, pad, pad_len);         // add 0x80 + (pad_len-1) zeros
+    sha512_update(ctx, sizedesc, 16);         // add 16 bytes of length
 
-    /* Теперь ctx->s содержит итоговый хеш, скопируем в hash (big-endian) */
+    /* Now ctx->s contains the final hash; copy it into hash (big-endian) */
     for (int i = 0; i < 8; i++) {
         write_be64(hash + i*8, ctx->s[i]);
     }
 }
 
-/* Сброс контекста к начальному состоянию (как после init). */
+/* Reset the context to its initial state (like after init). */
 void sha512_reset(sha512_ctx* ctx)
 {
     sha512_init(ctx);
 }
 
-/* Упрощённая обёртка: "сразу всё за один вызов" */
+/* Simplified wrapper: "everything in one call" */
 void sha512_hash(const char* input, char* output, uint32_t input_len)
 {
     sha512_ctx ctx;
@@ -238,6 +238,6 @@ void sha512_hash(const char* input, char* output, uint32_t input_len)
     sha512_update(&ctx, (const unsigned char*)input, input_len);
     sha512_finalize(&ctx, temp);
 
-    /* 64 байта результата копируем в output */
+    /* Copy 64 bytes of the result to output */
     memcpy(output, temp, SHA512_OUTPUT_SIZE);
 }
