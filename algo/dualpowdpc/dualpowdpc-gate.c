@@ -42,53 +42,73 @@ extern __thread sha256_context sha256_prehash_ctx;
 // Применяем выравнивание для всех буферов, которые участвуют в вычислениях
 static void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
 {
-    unsigned char _ALIGN(64) salt_sha512[64];  // Выровняем буфер для SHA-512
-    unsigned char _ALIGN(64) hash[32];         // Выровняем буфер для хешей
-    unsigned char _ALIGN(64) hash2[32];        // Выровняем второй буфер хеша
+    unsigned char _ALIGN(64) salt_sha512[64];  // Исправлена синтаксическая ошибка
+    unsigned char _ALIGN(64) hash[32];         // Исправлено выравнивание
+    
+    // Step 1: Double SHA-512
+    sha512_ctx sha_ctx;
+    sha512_init(&sha_ctx);
+    sha512_update(&sha_ctx, (const unsigned char *)input, input_len);
+    sha512_finalize(&sha_ctx, salt_sha512);
+    sha512_reset(&sha_ctx);
+    sha512_update(&sha_ctx, salt_sha512, 64);
+    sha512_finalize(&sha_ctx, salt_sha512);
 
-    // 1. Двойной SHA-512
-    sha512_ctx ctx;
-    sha512_init(&ctx);
-    sha512_update(&ctx, (const unsigned char*)input, input_len);
-    sha512_finalize(&ctx, salt_sha512);
+    // Step 2: First Argon2id (t=2, m=4096, p=2)
+    argon2_context context1 = {0};
+    context1.out = hash;
+    context1.outlen = 32;
+    context1.pwd = (uint8_t *)input;
+    context1.pwdlen = input_len;
+    context1.salt = salt_sha512;
+    context1.saltlen = 64;
+    context1.secret = NULL;
+    context1.secretlen = 0;
+    context1.ad = NULL;
+    context1.adlen = 0;
+    context1.flags = ARGON2_DEFAULT_FLAGS;
+    context1.m_cost = 4096;
+    context1.lanes = 2;
+    context1.threads = 2;
+    context1.t_cost = 2;
+    context1.allocate_cbk = NULL;
+    context1.free_cbk = NULL;
+    context1.version = 0x13;  // Используем конкретное значение версии
 
-    sha512_reset(&ctx);
-    sha512_update(&ctx, salt_sha512, 64);
-    sha512_finalize(&ctx, salt_sha512);
-
-    // 2. Первый Argon2id (t=2, m=4096, p=2)
-    int rc = argon2id_hash_raw(
-        2,        // t_cost=2
-        4096,     // m_cost=4096 KiB => ~4MB
-        2,        // параллелизм=2
-        (const void*)input, (size_t)input_len,
-        (const void*)salt_sha512, (size_t)64,
-        (void*)hash, (size_t)32,
-        0x13
-    );
+    int rc = argon2id_ctx(&context1);  // Используем специализированную функцию
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
-        return; // Возврат в случае ошибки
+        return;
     }
 
-    // 3. Второй Argon2id (t=2, m=32768, p=2) => 32MB
-    rc = argon2id_hash_raw(
-        2,
-        32768,
-        2,
-        (const void*)input, (size_t)input_len,
-        (const void*)hash, 32,
-        (void*)hash2, 32,
-        0x13
-    );
+    // Step 3: Second Argon2id (t=2, m=32768, p=2)
+    argon2_context context2 = {0};
+    context2.out = (uint8_t *)output;
+    context2.outlen = 32;
+    context2.pwd = (uint8_t *)input;  // Используем исходный input
+    context2.pwdlen = input_len;      // Используем исходную длину
+    context2.salt = hash;            // Используем результат первого хеширования как соль
+    context2.saltlen = 32;
+    context2.secret = NULL;
+    context2.secretlen = 0;
+    context2.ad = NULL;
+    context2.adlen = 0;
+    context2.flags = ARGON2_DEFAULT_FLAGS;
+    context2.m_cost = 32768;
+    context2.lanes = 2;
+    context2.threads = 2;
+    context2.t_cost = 2;
+    context2.allocate_cbk = NULL;
+    context2.free_cbk = NULL;
+    context2.version = 0x13;
+
+    rc = argon2id_ctx(&context2);  // Используем специализированную функцию
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
-        return; // Возврат в случае ошибки
+        return;
     }
-
-    // 4. Копирование в финальный результат
-    memcpy(output, hash2, 32);
 }
+
 
 /* ------------------------------------------------------------------
  * scanhash_dualpowdpc
