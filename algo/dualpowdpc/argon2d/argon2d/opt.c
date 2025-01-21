@@ -23,8 +23,8 @@
 #include "core.h"
 
 #include "simd-utils.h"
-#include "../blake2/blake2.h"
-#include "../blake2/blamka-round-opt.h"
+#include "algo/argon2d/blake2/blake2.h"
+#include "algo/argon2d/blake2/blamka-round-opt.h"
 
 /*
  * Function fills a new memory block and optionally XORs the old block over the new one.
@@ -172,8 +172,8 @@ static void next_addresses(block *address_block, block *input_block) {
     fill_block(zero2_block, address_block, address_block, 0);
 }
 
-void fill_segment(const argon2_instance_t *instance,
-                  argon2_position_t position) {
+void fill_segment_dpc(const argon2_instance_t *instance,
+                    argon2_position_t position) {
     block *ref_block = NULL, *curr_block = NULL;
     block address_block, input_block;
     uint64_t pseudo_rand, ref_index, ref_lane;
@@ -198,7 +198,7 @@ void fill_segment(const argon2_instance_t *instance,
          (position.slice < ARGON2_SYNC_POINTS / 2));
 
     if (data_independent_addressing) {
-        init_block_value(&input_block, 0);
+        init_block_value_dpc(&input_block, 0);
 
         input_block.v[0] = position.pass;
         input_block.v[1] = position.lane;
@@ -263,7 +263,7 @@ void fill_segment(const argon2_instance_t *instance,
          * lane.
          */
         position.index = i;
-        ref_index = index_alpha(instance, &position, pseudo_rand & 0xFFFFFFFF,
+        ref_index = index_alpha_dpc(instance, &position, pseudo_rand & 0xFFFFFFFF,
                                 ref_lane == position.lane);
 
         /* 2 Creating a new block */
