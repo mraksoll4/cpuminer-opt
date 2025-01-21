@@ -81,7 +81,6 @@ cpuminer_SOURCES = \
   algo/cubehash/sph_cubehash.c \
   algo/dualpowdpc/dualpowdpc-gate.c \
   algo/dualpowdpc/sha512.c \
-  algo/dualpowdpc/argon2d/blake2/blake2b.c \
   algo/dualpowdpc/argon2d/argon2d/argon2.c \
   algo/dualpowdpc/argon2d/argon2d/core.c \
   algo/dualpowdpc/argon2d/argon2d/opt.c \
