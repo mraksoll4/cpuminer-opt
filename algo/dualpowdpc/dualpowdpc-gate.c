@@ -22,6 +22,7 @@
 #include "sha512.h"           // ваш SHA-512 (C-реализация)
 #include "algo-gate-api.h"    // algo_gate_t, submit_solution, ...
 #include "simd-utils.h"
+#include "dualpowdpc-gate.h"
 
 yespower_params_t yespower_params;
 
@@ -63,7 +64,7 @@ int yespower_hash_ref_dpc( const char *input, char *output, int thrid )
  *   - Итог (32 байта) кладёт в output.
  * ------------------------------------------------------------------ */
 // Применяем выравнивание для всех буферов, которые участвуют в вычислениях
-void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
+void argon2idDPC_hash(const char *input, char *output)
 {
     unsigned char _ALIGN(64) salt_sha512[64];  // Исправлена синтаксическая ошибка
     unsigned char _ALIGN(64) hash[32];         // Исправлено выравнивание
@@ -71,7 +72,7 @@ void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
     // Step 1: Double SHA-512
     sha512_ctx sha_ctx;
     sha512_init(&sha_ctx);
-    sha512_update(&sha_ctx, (const unsigned char *)input, input_len);
+    sha512_update(&sha_ctx, (const unsigned char *)input, 80);
     sha512_finalize(&sha_ctx, salt_sha512);
     sha512_reset(&sha_ctx);
     sha512_update(&sha_ctx, salt_sha512, 64);
@@ -82,7 +83,7 @@ void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
     context1.out = hash;
     context1.outlen = 32;
     context1.pwd = (uint8_t *)input;
-    context1.pwdlen = input_len;
+    context1.pwdlen = 80;
     context1.salt = salt_sha512;
     context1.saltlen = 64;
     context1.secret = NULL;
@@ -109,7 +110,7 @@ void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
     context2.out = (uint8_t *)output;
     context2.outlen = 32;
     context2.pwd = (uint8_t *)input;  // Используем исходный input
-    context2.pwdlen = input_len;      // Используем исходную длину
+    context2.pwdlen = 80;      // Используем исходную длину
     context2.salt = hash;            // Используем результат первого хеширования как соль
     context2.saltlen = 32;
     context2.secret = NULL;
@@ -130,6 +131,15 @@ void argon2idDPC_hash(const char *input, char *output, uint32_t input_len)
         applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
         return;
     }
+}
+
+bool register_argon2idDPC_algo( algo_gate_t* gate )
+{
+        gate->scanhash = (void*)&scanhash_dualpowdpc;
+        gate->hash = (void*)&argon2idDPC_hash;
+        gate->optimizations = SSE2_OPT | AVX2_OPT | AVX512_OPT | NEON_OPT;
+        opt_target_factor = 65536.0;
+        return true;
 }
 
 
@@ -170,7 +180,7 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
                 // Увеличиваем счётчик только когда делаем Argon2 вычисление
                 argon_count++;
                 
-                argon2idDPC_hash((const char*)endiandata, (char*)argon2hash, 80);
+                argon2idDPC_hash((const char*)endiandata, (char*)argon2hash);
                 
                 if (valid_hash((uint32_t*)argon2hash, ptarget)) {
                     be32enc(pdata + 19, n);
@@ -182,7 +192,7 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
                     //    "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
                     //    "  Yespower-hash:    %s\n"
                     //    "  Argon2idDPC-hash: %s",
-                    //    thr_id, n, yeshex, arghex);
+                    //   thr_id, n, yeshex, arghex);
                     submit_solution(work, argon2hash, mythr);
                 }
             }
@@ -223,6 +233,6 @@ bool register_dualpowdpc_algo(algo_gate_t *gate)
 
     opt_target_factor   = 65536.0;
 
-    applog(LOG_INFO, "DUALPOWDPC: yespower + argon2idDPC algo registered.\n");
+    applog(LOG_INFO, "DUALPOWDPC: yespowerDPC + argon2idDPC algo registered.\n");
     return true;
 }
