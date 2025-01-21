@@ -137,9 +137,9 @@ void NOT_OPTIMIZED secure_wipe_memory_dpc(void *v, size_t n) {
 }
 
 /* Memory clear flag defaults to true. */
-int FLAG_clear_internal_memory = 0;
+int FLAG_clear_internal_memory_dpc = 0;
 void clear_internal_memory_dpc(void *v, size_t n) {
-  if (FLAG_clear_internal_memory && v) {
+  if (FLAG_clear_internal_memory_dpc && v) {
 //    secure_wipe_memory(v, n);
   }
 }
@@ -276,7 +276,7 @@ static void *fill_segment_thr(void *thread_data)
 {
     argon2_thread_data *my_data = thread_data;
     fill_segment_dpc(my_data->instance_ptr, my_data->pos);
-    argon2_thread_exit();
+    argon2_thread_exit_dpc();
     return 0;
 }
 
@@ -310,7 +310,7 @@ static int fill_memory_blocks_mt(argon2_instance_t *instance) {
 
                 /* 2.1 Join a thread if limit is exceeded */
                 if (l >= instance->threads) {
-                    if (argon2_thread_join(thread[l - instance->threads])) {
+                    if (argon2_thread_join_dpc(thread[l - instance->threads])) {
                         rc = ARGON2_THREAD_FAIL;
                         goto fail;
                     }
@@ -325,7 +325,7 @@ static int fill_memory_blocks_mt(argon2_instance_t *instance) {
                     instance; /* preparing the thread input */
                 memcpy(&(thr_data[l].pos), &position,
                        sizeof(argon2_position_t));
-                if (argon2_thread_create(&thread[l], &fill_segment_thr,
+                if (argon2_thread_create_dpc(&thread[l], &fill_segment_thr,
                                          (void *)&thr_data[l])) {
                     rc = ARGON2_THREAD_FAIL;
                     goto fail;
@@ -338,7 +338,7 @@ static int fill_memory_blocks_mt(argon2_instance_t *instance) {
             /* 3. Joining remaining threads */
             for (l = instance->lanes - instance->threads; l < instance->lanes;
                  ++l) {
-                if (argon2_thread_join(thread[l])) {
+                if (argon2_thread_join_dpc(thread[l])) {
                     rc = ARGON2_THREAD_FAIL;
                     goto fail;
                 }

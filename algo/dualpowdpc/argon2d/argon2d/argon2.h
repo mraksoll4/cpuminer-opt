@@ -94,7 +94,7 @@ extern "C" {
 
 /* Global flag to determine if we are wiping internal memory buffers. This flag
  * is defined in core.c and deafults to 1 (wipe internal memory). */
-extern int FLAG_clear_internal_memory;
+extern int FLAG_clear_internal_memory_dpc;
 
 /* Error codes */
 typedef enum Argon2_ErrorCodes {

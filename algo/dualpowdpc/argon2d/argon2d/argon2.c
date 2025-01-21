@@ -163,7 +163,7 @@ int argon2_hash_dpc(const uint32_t t_cost, const uint32_t m_cost,
 
     /* if encoding requested, write it */
     if (encoded && encodedlen) {
-        if (encode_string(encoded, encodedlen, &context, type) != ARGON2_OK) {
+        if (encode_string_dpc(encoded, encodedlen, &context, type) != ARGON2_OK) {
             clear_internal_memory_dpc(out, hashlen); /* wipe buffers if error */
             clear_internal_memory_dpc(encoded, encodedlen);
             free(out);
@@ -291,7 +291,7 @@ int argon2_verify_dpc(const char *encoded, const void *pwd, const size_t pwdlen,
     ctx.pwd = (uint8_t *)pwd;
     ctx.pwdlen = (uint32_t)pwdlen;
 
-    ret = decode_string(&ctx, encoded, type);
+    ret = decode_string_dpc(&ctx, encoded, type);
     if (ret != ARGON2_OK) {
         goto fail;
     }

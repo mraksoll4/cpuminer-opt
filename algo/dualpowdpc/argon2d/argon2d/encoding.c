@@ -255,7 +255,7 @@ static const char *decode_decimal(const char *str, unsigned long *v) {
  * when it is fed into decode_string.
  */
 
-int decode_string(argon2_context *ctx, const char *str, argon2_type type) {
+int decode_string_dpc(argon2_context *ctx, const char *str, argon2_type type) {
 
 /* check for prefix */
 #define CC(prefix)                                                             \
@@ -370,7 +370,7 @@ int decode_string(argon2_context *ctx, const char *str, argon2_type type) {
 #undef BIN
 }
 
-int encode_string(char *dst, size_t dst_len, argon2_context *ctx,
+int encode_string_dpc(char *dst, size_t dst_len, argon2_context *ctx,
                   argon2_type type) {
 #define SS(str)                                                                \
     do {                                                                       \
@@ -437,7 +437,7 @@ int encode_string(char *dst, size_t dst_len, argon2_context *ctx,
 #undef SB
 }
 
-size_t b64len(uint32_t len) {
+size_t b64len_dpc(uint32_t len) {
     size_t olen = ((size_t)len / 3) << 2;
 
     switch (len % 3) {
@@ -452,7 +452,7 @@ size_t b64len(uint32_t len) {
     return olen;
 }
 
-size_t numlen(uint32_t num) {
+size_t numlen_dpc(uint32_t num) {
     size_t len = 1;
     while (num >= 10) {
         ++len;
