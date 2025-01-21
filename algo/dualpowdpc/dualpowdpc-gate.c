@@ -18,7 +18,7 @@
 #include <string.h>
 #include "miner.h"
 #include "algo/yespower/yespower.h"         // yespower_tls(...) SSE2/ref
-#include "algo/argon2d/argon2d/argon2.h"    // argon2id_hash_raw
+#include "argon2d/argon2d/argon2.h"    // argon2id_hash_raw
 #include "sha512.h"           // ваш SHA-512 (C-реализация)
 #include "algo-gate-api.h"    // algo_gate_t, submit_solution, ...
 #include "simd-utils.h"
