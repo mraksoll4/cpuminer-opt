@@ -10,7 +10,6 @@
 #include "simd-utils.h"
 #include "dualpowdpc-gate.h"
 
-// Thread-local context for argon2id
 typedef struct {
     argon2_context context1;
     argon2_context context2;
@@ -46,7 +45,6 @@ bool init_argon2id_thread_ctx(int thr_id) {
         argon_ctx->context2.threads = 2;
         argon_ctx->context2.flags = ARGON2_DEFAULT_FLAGS;
         argon_ctx->context2.version = 0x13;
-
     }
     return true;
 }
@@ -58,9 +56,14 @@ void free_argon2id_thread_ctx() {
     }
 }
 
-// Internal yespower function
+// Modified yespower function with work restart check
 static int yespower_hash_internal(const char *input, char *output, int thrid)
 {
+    // Check for work restart before starting computation
+    if (work_restart[thrid].restart) {
+        return 0;
+    }
+
 #if defined(__SSE2__) || defined(__aarch64__)
     return yespower_tls(input, 80, &yespower_params, 
             (yespower_binary_t*)output, thrid);
@@ -70,9 +73,14 @@ static int yespower_hash_internal(const char *input, char *output, int thrid)
 #endif
 }
 
-// Internal argon2id function
-static void argon2id_hash_internal(const char *input, char *output, int thr_id)
+// Modified argon2id function with work restart checks
+static bool argon2id_hash_internal(const char *input, char *output, int thr_id)
 {
+    // Check for work restart before starting
+    if (work_restart[thr_id].restart) {
+        return false;
+    }
+
     unsigned char _ALIGN(64) salt_sha512[64];
     unsigned char _ALIGN(64) hash[32];
     
@@ -81,13 +89,24 @@ static void argon2id_hash_internal(const char *input, char *output, int thr_id)
     sha512_init(&sha_ctx);
     sha512_update(&sha_ctx, (const unsigned char *)input, 80);
     sha512_finalize(&sha_ctx, salt_sha512);
+
+    // Check for work restart after first SHA-512
+    if (work_restart[thr_id].restart) {
+        return false;
+    }
+
     sha512_reset(&sha_ctx);
     sha512_update(&sha_ctx, salt_sha512, 64);
     sha512_finalize(&sha_ctx, salt_sha512);
 
+    // Check for work restart after second SHA-512
+    if (work_restart[thr_id].restart) {
+        return false;
+    }
+
     // Use thread-local context
     if (!argon_ctx) {
-        if (!init_argon2id_thread_ctx(thr_id)) return;
+        if (!init_argon2id_thread_ctx(thr_id)) return false;
     }
 
     // First Argon2id pass
@@ -101,7 +120,12 @@ static void argon2id_hash_internal(const char *input, char *output, int thr_id)
     int rc = argon2id_ctx_dpc(&argon_ctx->context1);
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: first Argon2id rc=%d\n", rc);
-        return;
+        return false;
+    }
+
+    // Check for work restart after first Argon2id pass
+    if (work_restart[thr_id].restart) {
+        return false;
     }
 
     // Second Argon2id pass
@@ -115,11 +139,13 @@ static void argon2id_hash_internal(const char *input, char *output, int thr_id)
     rc = argon2id_ctx_dpc(&argon_ctx->context2);
     if (rc != ARGON2_OK) {
         applog(LOG_ERR, "argon2idDPC_hash: second Argon2id rc=%d\n", rc);
-        return;
+        return false;
     }
+
+    return true;
 }
 
-// Main scanhash function for dualpowdpc
+// Modified main scanhash function
 int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
                         uint64_t *hashes_done, struct thr_info *mythr)
 {
@@ -139,6 +165,12 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
         return -1;
     }
 
+    // Early restart check
+    if (work_restart[thr_id].restart) {
+        *hashes_done = 0;
+        return 0;
+    }
+
     for (int k = 0; k < 19; k++) {
         be32enc(&endiandata[k], pdata[k]);
     }
@@ -148,26 +180,40 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
     sha256_update(&sha256_prehash_ctx, endiandata, 64);
 
     do {
+        // Check for work restart at the start of each iteration
+        if (work_restart[thr_id].restart) {
+            *hashes_done = argon_count;
+            return 0;
+        }
+
         // First yespower
         if (yespower_hash_internal((char*)endiandata, (char*)vhash, thr_id)) {
-            if unlikely(valid_hash(vhash, ptarget) && !opt_benchmark) {
+            // Check work restart after yespower
+            if (work_restart[thr_id].restart) {
+                *hashes_done = argon_count;
+                return 0;
+            }
+
+            if (unlikely(valid_hash(vhash, ptarget) && !opt_benchmark)) {
                 argon_count++;
-                // Then argon2id
-                argon2id_hash_internal((char*)endiandata, (char*)argon2hash, thr_id);
-                
-                if (valid_hash((uint32_t*)argon2hash, ptarget)) {
-                    be32enc(pdata + 19, n);
 
-                    //char yeshex[65], arghex[65];
-                    //bin2hex(yeshex, (unsigned char*)vhash, 32);
-                    //bin2hex(arghex, (unsigned char*)argon2hash, 32);
-                    //applog(LOG_INFO, 
-                    //    "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
-                    //    "  Yespower-hash:    %s\n"
-                    //    "  Argon2idDPC-hash: %s",
-                    //    thr_id, n, yeshex, arghex);
+                // Then argon2id with restart checking
+                if (argon2id_hash_internal((char*)endiandata, (char*)argon2hash, thr_id)) {
+                    // Final check before submission
+                    if (!work_restart[thr_id].restart && valid_hash((uint32_t*)argon2hash, ptarget)) {
+                        be32enc(pdata + 19, n);
 
-                    submit_solution(work, argon2hash, mythr);
+                        //char yeshex[65], arghex[65];
+                        //bin2hex(yeshex, (unsigned char*)vhash, 32);
+                        //bin2hex(arghex, (unsigned char*)argon2hash, 32);
+                        //applog(LOG_INFO, 
+                        //    "DUALPOWDPC thr=%d: FOUND nonce=0x%08x\n"
+                        //    "  Yespower-hash:    %s\n"
+                        //    "  Argon2idDPC-hash: %s",
+                        //    thr_id, n, yeshex, arghex);
+						
+                        submit_solution(work, argon2hash, mythr);
+                    }
                 }
             }
         }
@@ -179,16 +225,13 @@ int scanhash_dualpowdpc(struct work *work, uint32_t max_nonce,
     return 0;
 }
 
-
 bool register_dualpowdpc_algo(algo_gate_t *gate)
 {
-
     yespower_params.version = YESPOWER_1_0;
     yespower_params.N = 2048;
     yespower_params.r = 8;
     yespower_params.pers = "One POW? Why not two? 17/04/2024";
     yespower_params.perslen = 32;
-
 
     gate->scanhash = (void*)&scanhash_dualpowdpc;
     gate->optimizations = SSE2_OPT | AVX2_OPT | AVX512_OPT | NEON_OPT | SHA256_OPT;
@@ -197,6 +240,6 @@ bool register_dualpowdpc_algo(algo_gate_t *gate)
 
     opt_target_factor = 65536.0;
 
-    applog(LOG_INFO, "DUALPOWDPC: Dual PoW (yespower + argon2id) algo registered.\n");
+    applog(LOG_INFO, "DUALPOWDPC: Dual PoW (yespower + argon2id) algo registered with improved work interruption.\n");
     return true;
 }
